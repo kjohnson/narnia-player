@@ -575,6 +575,290 @@ function registerMediaSessionHandlers() {
 }
 
 // ---------------------------------------------------------------------------
+// Offline
+// ---------------------------------------------------------------------------
+
+// Must match the cache names in public/sw.js, which serves these to the audio element.
+const AUDIO_CACHE = 'audio-v1';
+// The MP3s are 64 kbps, so this is close enough to show download sizes.
+const BYTES_PER_SECOND = 8000;
+
+const offline = {
+    supported: 'serviceWorker' in navigator && 'caches' in window,
+    saved: new Set(),
+    progress: new Map(),
+    queue: [],
+    all: false,
+    running: false,
+    controller: null,
+    persisted: false,
+};
+
+const offlineEls = {
+    panel: $('[data-bind="offline"]'),
+    status: $('[data-bind="offline-status"]'),
+    downloadAll: $('[data-action="download-all"]'),
+    remove: $('[data-action="remove-downloads"]'),
+};
+
+function audioKey(index) {
+    return `/offline/audio/${index + 1}`;
+}
+
+async function initOffline() {
+    if (!offline.supported) {
+        return;
+    }
+
+    try {
+        await navigator.serviceWorker.register('/sw.js');
+        const registration = await navigator.serviceWorker.ready;
+
+        // Save the page and the assets it loaded, so the player opens offline.
+        const urls = new Set([location.pathname]);
+
+        for (const entry of performance.getEntriesByType('resource')) {
+            const url = new URL(entry.name);
+
+            if (url.origin === location.origin && /^\/(build|images)\/|\.(webmanifest|png|ico)$/.test(url.pathname)) {
+                urls.add(url.pathname);
+            }
+        }
+
+        registration.active?.postMessage({ type: 'cache-shell', urls: [...urls] });
+
+        const cache = await caches.open(AUDIO_CACHE);
+
+        for (const request of await cache.keys()) {
+            const index = Number(new URL(request.url).pathname.split('/').pop()) - 1;
+
+            if (chapters[index]) {
+                offline.saved.add(index);
+            }
+        }
+    } catch {
+        offline.supported = false;
+    }
+
+    offlineEls.panel.classList.toggle('hidden', !offline.supported);
+    renderOffline();
+
+    if (!audio.paused) {
+        saveUpcoming();
+    }
+}
+
+/**
+ * Keep the chapter that's playing and the one after it on the device.
+ */
+function saveUpcoming() {
+    download([state.chapter, state.chapter + 1]);
+}
+
+function download(indexes) {
+    if (!offline.supported) {
+        return;
+    }
+
+    for (const index of indexes) {
+        if (chapters[index] && !offline.saved.has(index) && !offline.queue.includes(index)) {
+            offline.queue.push(index);
+        }
+    }
+
+    runQueue();
+}
+
+async function runQueue() {
+    if (offline.running) {
+        return;
+    }
+
+    offline.running = true;
+    renderOffline();
+
+    while (offline.queue.length) {
+        const index = offline.queue[0];
+
+        try {
+            await downloadChapter(index);
+            offline.queue.shift();
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                break;
+            }
+
+            if (error.retryAfter) {
+                // Rate limited; wait it out and try the same chapter again.
+                await new Promise((resolve) => setTimeout(resolve, error.retryAfter * 1000));
+                continue;
+            }
+
+            // Offline or failed; leave it for the next time it's needed.
+            offline.queue.shift();
+            offline.progress.delete(index);
+            renderOffline();
+
+            if (!navigator.onLine) {
+                offline.queue = [];
+            }
+        }
+    }
+
+    offline.running = false;
+    offline.all = false;
+    offline.controller = null;
+    renderOffline();
+}
+
+async function downloadChapter(index) {
+    if (!offline.persisted) {
+        offline.persisted = true;
+        // Ask the browser not to clear the downloads when it's short on space.
+        navigator.storage?.persist?.().catch(() => {});
+    }
+
+    offline.controller = new AbortController();
+    offline.progress.set(index, 0);
+    renderOffline();
+
+    let response = await fetchAudio(index);
+
+    // The signed URL may have expired; get a fresh one and try once more.
+    if (response.status === 403) {
+        await refreshUrl(index);
+        response = await fetchAudio(index);
+    }
+
+    if (response.status === 429) {
+        throw Object.assign(new Error('Rate limited'), { retryAfter: Number(response.headers.get('Retry-After')) || 30 });
+    }
+
+    if (!response.ok || !response.body) {
+        throw new Error(`Download failed: ${response.status}`);
+    }
+
+    const total = Number(response.headers.get('Content-Length')) || chapters[index].duration * BYTES_PER_SECOND;
+    const reader = response.body.getReader();
+    const chunks = [];
+    let received = 0;
+
+    for (;;) {
+        const { done, value } = await reader.read();
+
+        if (done) {
+            break;
+        }
+
+        chunks.push(value);
+        received += value.length;
+        offline.progress.set(index, Math.min(received / total, 0.99));
+        renderOffline();
+    }
+
+    const expected = Number(response.headers.get('Content-Length'));
+
+    if (expected && received !== expected) {
+        throw new Error('Download incomplete');
+    }
+
+    const blob = new Blob(chunks, { type: 'audio/mpeg' });
+    const cache = await caches.open(AUDIO_CACHE);
+
+    await cache.put(
+        audioKey(index),
+        new Response(blob, { headers: { 'Content-Type': 'audio/mpeg', 'Content-Length': String(blob.size) } }),
+    );
+
+    offline.progress.delete(index);
+    offline.saved.add(index);
+
+    // The service worker keeps a copy of the text for offline reading.
+    if (chapters[index].hasText) {
+        fetchText(index).catch(() => {});
+    }
+
+    renderOffline();
+}
+
+function fetchAudio(index) {
+    return fetch(chapters[index].url, { signal: offline.controller.signal });
+}
+
+async function refreshUrl(index) {
+    const response = await fetch(`/audio/${index + 1}/url`, { headers: { Accept: 'application/json' } });
+
+    if (response.ok) {
+        chapters[index].url = (await response.json()).url;
+    }
+
+    return response.ok;
+}
+
+function downloadAll() {
+    offline.all = true;
+    download(chapters.map((chapter, index) => index));
+}
+
+function stopDownloads() {
+    offline.queue = [];
+    offline.all = false;
+    offline.controller?.abort();
+    offline.progress.clear();
+    renderOffline();
+}
+
+async function removeDownloads() {
+    stopDownloads();
+    offline.saved.clear();
+    await caches.delete(AUDIO_CACHE);
+    renderOffline();
+}
+
+function renderOffline() {
+    if (!offline.supported) {
+        return;
+    }
+
+    document.querySelectorAll('[data-offline]').forEach((el) => {
+        const index = Number(el.dataset.offline);
+        const progress = offline.progress.get(index);
+
+        if (offline.saved.has(index)) {
+            el.innerHTML =
+                '<svg class="ml-auto size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+            el.setAttribute('aria-label', 'Saved for offline');
+        } else if (progress !== undefined) {
+            el.textContent = `${Math.round(progress * 100)}%`;
+            el.setAttribute('aria-label', 'Saving for offline');
+        } else {
+            el.replaceChildren();
+            el.removeAttribute('aria-label');
+        }
+    });
+
+    const remaining = chapters.filter((chapter, index) => !offline.saved.has(index));
+    const current = offline.queue.find((index) => offline.progress.has(index));
+
+    if (current !== undefined) {
+        offlineEls.status.textContent = `Saving chapter ${current + 1}… ${Math.round(offline.progress.get(current) * 100)}%`;
+    } else if (remaining.length === 0) {
+        offlineEls.status.textContent = 'All chapters saved for offline';
+    } else if (offline.saved.size) {
+        offlineEls.status.textContent = `${offline.saved.size} of ${chapters.length} saved for offline`;
+    } else {
+        offlineEls.status.textContent = 'Listen without a connection';
+    }
+
+    const megabytes = Math.round(remaining.reduce((sum, chapter) => sum + chapter.duration, 0) * BYTES_PER_SECOND / 1e6);
+
+    offlineEls.downloadAll.textContent = offline.saved.size ? `Save the rest (${megabytes} MB)` : `Save all (${megabytes} MB)`;
+    offlineEls.downloadAll.classList.toggle('hidden', remaining.length === 0 || offline.all);
+    offlineEls.remove.textContent = offline.all ? 'Stop' : 'Remove';
+    offlineEls.remove.classList.toggle('hidden', !offline.all && offline.saved.size === 0);
+}
+
+// ---------------------------------------------------------------------------
 // Events
 // ---------------------------------------------------------------------------
 
@@ -596,6 +880,7 @@ audio.addEventListener('progress', renderTime);
 audio.addEventListener('play', () => {
     renderPlayState();
     syncReaderLoop();
+    saveUpcoming();
 });
 audio.addEventListener('pause', () => {
     renderPlayState();
@@ -638,11 +923,7 @@ audio.addEventListener('error', async () => {
         refreshedChapters.add(index);
 
         try {
-            const response = await fetch(`/audio/${index + 1}/url`, { headers: { Accept: 'application/json' } });
-
-            if (response.ok) {
-                chapters[index].url = (await response.json()).url;
-
+            if (await refreshUrl(index)) {
                 if (state.chapter === index) {
                     selectChapter(index, { autoplay: wasPlaying, position: currentTime() });
                 }
@@ -724,6 +1005,12 @@ document.addEventListener('click', (event) => {
         case 'follow':
             resumeFollowing();
             break;
+        case 'download-all':
+            downloadAll();
+            break;
+        case 'remove-downloads':
+            offline.all ? stopDownloads() : removeDownloads();
+            break;
         case 'open-chapters':
             renderChapterProgress();
             sheet.showModal();
@@ -783,3 +1070,4 @@ registerMediaSessionHandlers();
 renderPlayState();
 selectChapter(state.chapter);
 state.booted = true;
+initOffline();

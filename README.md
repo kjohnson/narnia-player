@@ -7,6 +7,9 @@ Dr. Chrissi Hart on [Readings from Under the Grapevine](https://www.ancientfaith
 - Chapter list with per-chapter progress
 - Resume where you left off (saved in the browser's localStorage)
 - Back 15s / forward 30s
+- Works offline: the chapter that's playing and the next one are saved on the device automatically, and
+  "Save all" in the chapters menu saves the whole book (about 120 MB). A service worker (`public/sw.js`)
+  serves saved chapters, including seeking, and keeps the player itself available without a connection.
 - Lock-screen and headphone controls via the Media Session API
 - Installable to the home screen (web app manifest)
 

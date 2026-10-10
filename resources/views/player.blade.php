@@ -178,10 +178,19 @@
                                 <span class="shrink-0 text-sm text-sand-400 tabular-nums">
                                     {{ gmdate($chapter['duration'] >= 3600 ? 'G:i:s' : 'i:s', (int) $chapter['duration']) }}
                                 </span>
+                                <span class="flex w-8 shrink-0 justify-end text-xs text-ember-400 tabular-nums" data-offline="{{ $index }}"></span>
                             </button>
                         </li>
                     @endforeach
                 </ol>
+
+                <div class="mt-3 hidden items-center justify-between gap-3 rounded-xl bg-white/5 px-3 py-3 text-sm [&:not(.hidden)]:flex" data-bind="offline">
+                    <span class="min-w-0 text-sand-300" data-bind="offline-status" aria-live="polite"></span>
+                    <span class="flex shrink-0 gap-2">
+                        <button type="button" data-action="download-all" class="tap rounded-full bg-ember-500 px-3 py-1.5 font-semibold text-night-950"></button>
+                        <button type="button" data-action="remove-downloads" class="tap hidden rounded-full px-3 py-1.5 text-sand-300 ring-1 ring-white/15">Remove</button>
+                    </span>
+                </div>
 
                 <p class="px-3 pt-4 text-xs text-sand-500">
                     Read by {{ $book['narrator'] }} on
