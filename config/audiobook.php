@@ -183,7 +183,7 @@ return [
                     'title' => 'The Island',
                     'file' => 'chapter-01-the-island.mp3',
                     'epub' => 'ch01.xhtml',
-                    'duration' => 999.02,
+                    'duration' => 996.89,
                 ],
                 [
                     'title' => 'The Ancient Treasure House',
