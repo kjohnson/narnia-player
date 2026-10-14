@@ -11,28 +11,32 @@ class PlayerController extends Controller
      */
     public function __invoke(): View
     {
-        $book = config('audiobook');
-
-        $chapters = collect($book['chapters'])
-            ->values()
-            ->map(fn (array $chapter, int $index) => [
-                'number' => $index + 1,
-                'title' => $chapter['title'],
-                'duration' => $chapter['duration'],
-                'url' => AudioController::signedUrl($index + 1),
-                'hasText' => TextController::exists($index + 1),
-            ]);
+        $books = collect(config('audiobook.books'))
+            ->map(fn (array $book, string $slug) => [
+                'slug' => $slug,
+                'title' => $book['title'],
+                'cover' => asset($book['cover']),
+                'coverDescription' => $book['cover_description'],
+                'chapters' => collect($book['chapters'])
+                    ->values()
+                    ->map(fn (array $chapter, int $index) => [
+                        'number' => $index + 1,
+                        'title' => $chapter['title'],
+                        'duration' => $chapter['duration'],
+                        'url' => AudioController::signedUrl($slug, $index + 1),
+                        'hasText' => TextController::exists($slug, $index + 1),
+                    ]),
+            ])
+            ->values();
 
         return view('player', [
-            'book' => [
-                'title' => $book['title'],
-                'author' => $book['author'],
-                'narrator' => $book['narrator'],
-                'cover' => asset($book['cover']),
-                'series' => $book['series'],
-                'source' => $book['source'],
+            'series' => [
+                'title' => config('audiobook.series'),
+                'author' => config('audiobook.author'),
+                'narrator' => config('audiobook.narrator'),
+                'source' => config('audiobook.source'),
             ],
-            'chapters' => $chapters,
+            'books' => $books,
         ]);
     }
 }

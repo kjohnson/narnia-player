@@ -1,9 +1,16 @@
-const STORAGE_KEY = 'narnia-lww:player:v1';
+const STORAGE_KEY = 'narnia:player:v2';
+// Where the player saved its place before it had more than one book.
+const LEGACY_STORAGE_KEY = 'narnia-lww:player:v1';
 const BACK_SECONDS = 15;
 const FORWARD_SECONDS = 30;
 const FOLLOW_PAUSE_MS = 6000;
 
-const { book, chapters } = JSON.parse(document.getElementById('audiobook-data').textContent);
+const { series, books } = JSON.parse(document.getElementById('audiobook-data').textContent);
+const booksBySlug = Object.fromEntries(books.map((listed) => [listed.slug, listed]));
+
+// The book that's playing, and its chapters.
+let book = books[0];
+let chapters = book.chapters;
 
 const audio = document.getElementById('audio');
 const sheet = document.getElementById('chapters');
@@ -19,6 +26,9 @@ const ui = {
     status: $('[data-bind="status"]'),
     chapterLabel: $('[data-bind="chapter-label"]'),
     chapterTitle: $('[data-bind="chapter-title"]'),
+    bookTitle: $('[data-bind="book-title"]'),
+    cover: $('[data-bind="cover"]'),
+    backdrop: $('[data-bind="backdrop"]'),
     player: $('#player'),
     textButton: $('[data-action="text"]'),
     followButton: $('[data-action="follow"]'),
@@ -32,8 +42,14 @@ const ui = {
 };
 
 const state = {
+    book: book.slug,
     chapter: 0,
+    // Each book's current chapter and the position reached in each of its chapters.
+    progress: {},
+    // The playing book's positions (shared with state.progress).
     positions: {},
+    // The book whose chapters are showing in the chapter sheet.
+    sheetBook: book.slug,
     view: 'cover',
     pendingSeek: null,
     scrubbing: false,
@@ -47,16 +63,46 @@ const state = {
 
 function load() {
     try {
-        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY)) ?? loadLegacy();
 
         if (saved) {
-            state.chapter = Math.min(Math.max(saved.chapter ?? 0, 0), chapters.length - 1);
-            state.positions = saved.positions ?? {};
+            state.progress = saved.progress ?? {};
             state.view = saved.view === 'text' ? 'text' : 'cover';
+            useBook(booksBySlug[saved.book] ? saved.book : books[0].slug);
         }
     } catch {
         // Storage unavailable or corrupt; start fresh.
     }
+}
+
+/**
+ * Carry over the place saved when the player only had the first book.
+ */
+function loadLegacy() {
+    const saved = JSON.parse(localStorage.getItem(LEGACY_STORAGE_KEY));
+
+    if (!saved) {
+        return null;
+    }
+
+    return {
+        book: books[0].slug,
+        view: saved.view,
+        progress: { [books[0].slug]: { chapter: saved.chapter, positions: saved.positions } },
+    };
+}
+
+/**
+ * Make a book the one that's playing, picking up at its saved chapter.
+ */
+function useBook(slug) {
+    book = booksBySlug[slug];
+    chapters = book.chapters;
+    state.book = slug;
+    state.progress[slug] ??= { chapter: 0, positions: {} };
+    state.progress[slug].positions ??= {};
+    state.positions = state.progress[slug].positions;
+    state.chapter = Math.min(Math.max(state.progress[slug].chapter ?? 0, 0), chapters.length - 1);
 }
 
 let lastSave = 0;
@@ -75,10 +121,12 @@ function save(force = false) {
         state.positions[state.chapter] = Math.floor(audio.currentTime);
     }
 
+    state.progress[state.book].chapter = state.chapter;
+
     try {
         localStorage.setItem(
             STORAGE_KEY,
-            JSON.stringify({ chapter: state.chapter, positions: state.positions, view: state.view }),
+            JSON.stringify({ book: state.book, progress: state.progress, view: state.view }),
         );
     } catch {
         // Ignore quota or privacy-mode errors.
@@ -107,6 +155,36 @@ function currentTime() {
     return state.pendingSeek ?? audio.currentTime;
 }
 
+/**
+ * A chapter's "{book}/{number}" key, as used in its audio and text URLs.
+ */
+function chapterKey(slug, index) {
+    return `${slug}/${index + 1}`;
+}
+
+function currentKey() {
+    return chapterKey(state.book, state.chapter);
+}
+
+function chapterAt(key) {
+    const [slug, number] = key.split('/');
+
+    return booksBySlug[slug]?.chapters[Number(number) - 1];
+}
+
+/**
+ * The chapter after the one that's playing, running on into the next book.
+ */
+function followingChapter() {
+    if (state.chapter < chapters.length - 1) {
+        return { book: state.book, index: state.chapter + 1 };
+    }
+
+    const nextBook = books[books.indexOf(book) + 1];
+
+    return nextBook ? { book: nextBook.slug, index: 0 } : null;
+}
+
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
@@ -116,11 +194,19 @@ function renderChapter() {
 
     ui.chapterLabel.textContent = `Chapter ${chapter.number} of ${chapters.length}`;
     ui.chapterTitle.textContent = chapter.title;
-    ui.next.disabled = state.chapter >= chapters.length - 1;
+    ui.bookTitle.textContent = book.title;
+    ui.next.disabled = followingChapter() === null;
     document.title = `${chapter.title} — ${book.title}`;
 
+    if (ui.cover.getAttribute('src') !== book.cover) {
+        ui.cover.src = book.cover;
+        ui.cover.alt = book.coverDescription;
+        ui.backdrop.src = book.cover;
+    }
+
     document.querySelectorAll('[data-chapter]').forEach((row) => {
-        row.setAttribute('aria-current', String(Number(row.dataset.chapter) === state.chapter));
+        const current = row.dataset.book === state.book && Number(row.dataset.chapter) === state.chapter;
+        row.setAttribute('aria-current', String(current));
     });
 
     renderChapterProgress();
@@ -129,12 +215,14 @@ function renderChapter() {
 }
 
 function renderChapterProgress() {
-    document.querySelectorAll('[data-progress]').forEach((bar) => {
-        const index = Number(bar.dataset.progress);
-        const position = index === state.chapter ? currentTime() : state.positions[index] ?? 0;
-        const total = index === state.chapter ? duration() : chapters[index].duration;
+    document.querySelectorAll('[data-chapter]').forEach((row) => {
+        const slug = row.dataset.book;
+        const index = Number(row.dataset.chapter);
+        const playing = slug === state.book && index === state.chapter;
+        const position = playing ? currentTime() : state.progress[slug]?.positions?.[index] ?? 0;
+        const total = playing ? duration() : booksBySlug[slug].chapters[index].duration;
 
-        bar.style.width = `${Math.min(100, (position / total) * 100)}%`;
+        row.querySelector('[data-progress]').style.width = `${Math.min(100, (position / total) * 100)}%`;
     });
 }
 
@@ -188,7 +276,8 @@ function flash(message) {
 // ---------------------------------------------------------------------------
 
 const reader = {
-    chapter: null,
+    // The "{book}/{number}" key of the chapter whose text is showing.
+    key: null,
     timings: null,
     words: [],
     current: -1,
@@ -226,9 +315,9 @@ function toggleView() {
     save(true);
 }
 
-function fetchText(index) {
-    if (!textRequests.has(index)) {
-        const request = fetch(`/text/${index + 1}`, { headers: { Accept: 'application/json' } }).then((response) => {
+function fetchText(key) {
+    if (!textRequests.has(key)) {
+        const request = fetch(`/text/${key}`, { headers: { Accept: 'application/json' } }).then((response) => {
             if (!response.ok) {
                 throw new Error(`Text request failed: ${response.status}`);
             }
@@ -237,35 +326,35 @@ function fetchText(index) {
         });
 
         // Let a failed request be retried next time the text is opened.
-        request.catch(() => textRequests.delete(index));
-        textRequests.set(index, request);
+        request.catch(() => textRequests.delete(key));
+        textRequests.set(key, request);
     }
 
-    return textRequests.get(index);
+    return textRequests.get(key);
 }
 
 async function loadReader() {
-    const index = state.chapter;
+    const key = currentKey();
 
-    if (reader.chapter === index) {
+    if (reader.key === key) {
         return;
     }
 
-    reader.chapter = index;
+    reader.key = key;
     reader.timings = null;
     reader.words = [];
     reader.current = -1;
     readerEl.replaceChildren(readerStatus('Loading text…'));
 
     try {
-        const text = await fetchText(index);
+        const text = await fetchText(key);
 
-        if (reader.chapter === index) {
+        if (reader.key === key) {
             renderReader(text);
         }
     } catch {
-        if (reader.chapter === index) {
-            reader.chapter = null;
+        if (reader.key === key) {
+            reader.key = null;
             readerEl.replaceChildren(readerStatus('Couldn’t load the text'));
         }
     }
@@ -342,7 +431,7 @@ function wordAt(time) {
 }
 
 function highlightWord({ force = false, scroll = 'smooth' } = {}) {
-    if (!isReading() || !reader.timings || reader.chapter !== state.chapter) {
+    if (!isReading() || !reader.timings || reader.key !== currentKey()) {
         return;
     }
 
@@ -431,12 +520,16 @@ function syncReaderLoop() {
 // Playback
 // ---------------------------------------------------------------------------
 
-function selectChapter(index, { autoplay = false, position } = {}) {
-    if (index < 0 || index >= chapters.length) {
+function selectChapter(index, { autoplay = false, position, book: slug = state.book } = {}) {
+    if (!booksBySlug[slug]?.chapters[index]) {
         return;
     }
 
     save(true);
+
+    if (slug !== state.book) {
+        useBook(slug);
+    }
 
     const chapter = chapters[index];
     let start = position ?? state.positions[index] ?? 0;
@@ -510,8 +603,10 @@ function previous() {
 }
 
 function next() {
-    if (state.chapter < chapters.length - 1) {
-        selectChapter(state.chapter + 1, { autoplay: !audio.paused, position: 0 });
+    const following = followingChapter();
+
+    if (following) {
+        selectChapter(following.index, { book: following.book, autoplay: !audio.paused, position: 0 });
     }
 }
 
@@ -528,7 +623,7 @@ function updateMediaSession() {
 
     navigator.mediaSession.metadata = new MediaMetadata({
         title: `Ch. ${chapter.number}: ${chapter.title}`,
-        artist: book.author,
+        artist: series.author,
         album: book.title,
         artwork: [{ src: book.cover, sizes: '1024x1024', type: 'image/jpeg' }],
     });
@@ -583,12 +678,14 @@ const AUDIO_CACHE = 'audio-v1';
 // The MP3s are 64 kbps, so this is close enough to show download sizes.
 const BYTES_PER_SECOND = 8000;
 
+// Chapters are tracked by their "{book}/{number}" key.
 const offline = {
     supported: 'serviceWorker' in navigator && 'caches' in window,
     saved: new Set(),
     progress: new Map(),
     queue: [],
-    all: false,
+    // The book being saved with "Save all", if any.
+    all: null,
     running: false,
     controller: null,
     persisted: false,
@@ -601,8 +698,12 @@ const offlineEls = {
     remove: $('[data-action="remove-downloads"]'),
 };
 
-function audioKey(index) {
-    return `/offline/audio/${index + 1}`;
+function audioKey(key) {
+    return `/offline/audio/${key}`;
+}
+
+function bookKeys(slug) {
+    return booksBySlug[slug].chapters.map((chapter, index) => chapterKey(slug, index));
 }
 
 async function initOffline() {
@@ -630,10 +731,21 @@ async function initOffline() {
         const cache = await caches.open(AUDIO_CACHE);
 
         for (const request of await cache.keys()) {
-            const index = Number(new URL(request.url).pathname.split('/').pop()) - 1;
+            let key = new URL(request.url).pathname.replace(/^\/offline\/audio\//, '');
 
-            if (chapters[index]) {
-                offline.saved.add(index);
+            // Chapters saved before there was more than one book belong to the first book.
+            if (/^\d+$/.test(key)) {
+                key = chapterKey(books[0].slug, Number(key) - 1);
+                await cache.put(audioKey(key), await cache.match(request));
+                await cache.delete(request);
+
+                if (chapterAt(key)?.hasText) {
+                    fetchText(key).catch(() => {});
+                }
+            }
+
+            if (chapterAt(key)) {
+                offline.saved.add(key);
             }
         }
     } catch {
@@ -652,17 +764,19 @@ async function initOffline() {
  * Keep the chapter that's playing and the one after it on the device.
  */
 function saveUpcoming() {
-    download([state.chapter, state.chapter + 1]);
+    const following = followingChapter();
+
+    download([currentKey(), ...(following ? [chapterKey(following.book, following.index)] : [])]);
 }
 
-function download(indexes) {
+function download(keys) {
     if (!offline.supported) {
         return;
     }
 
-    for (const index of indexes) {
-        if (chapters[index] && !offline.saved.has(index) && !offline.queue.includes(index)) {
-            offline.queue.push(index);
+    for (const key of keys) {
+        if (chapterAt(key) && !offline.saved.has(key) && !offline.queue.includes(key)) {
+            offline.queue.push(key);
         }
     }
 
@@ -678,10 +792,10 @@ async function runQueue() {
     renderOffline();
 
     while (offline.queue.length) {
-        const index = offline.queue[0];
+        const key = offline.queue[0];
 
         try {
-            await downloadChapter(index);
+            await downloadChapter(key);
             offline.queue.shift();
         } catch (error) {
             if (error.name === 'AbortError') {
@@ -696,7 +810,7 @@ async function runQueue() {
 
             // Offline or failed; leave it for the next time it's needed.
             offline.queue.shift();
-            offline.progress.delete(index);
+            offline.progress.delete(key);
             renderOffline();
 
             if (!navigator.onLine) {
@@ -706,12 +820,12 @@ async function runQueue() {
     }
 
     offline.running = false;
-    offline.all = false;
+    offline.all = null;
     offline.controller = null;
     renderOffline();
 }
 
-async function downloadChapter(index) {
+async function downloadChapter(key) {
     if (!offline.persisted) {
         offline.persisted = true;
         // Ask the browser not to clear the downloads when it's short on space.
@@ -719,15 +833,15 @@ async function downloadChapter(index) {
     }
 
     offline.controller = new AbortController();
-    offline.progress.set(index, 0);
+    offline.progress.set(key, 0);
     renderOffline();
 
-    let response = await fetchAudio(index);
+    let response = await fetchAudio(key);
 
     // The signed URL may have expired; get a fresh one and try once more.
     if (response.status === 403) {
-        await refreshUrl(index);
-        response = await fetchAudio(index);
+        await refreshUrl(key);
+        response = await fetchAudio(key);
     }
 
     if (response.status === 429) {
@@ -738,7 +852,7 @@ async function downloadChapter(index) {
         throw new Error(`Download failed: ${response.status}`);
     }
 
-    const total = Number(response.headers.get('Content-Length')) || chapters[index].duration * BYTES_PER_SECOND;
+    const total = Number(response.headers.get('Content-Length')) || chapterAt(key).duration * BYTES_PER_SECOND;
     const reader = response.body.getReader();
     const chunks = [];
     let received = 0;
@@ -752,7 +866,7 @@ async function downloadChapter(index) {
 
         chunks.push(value);
         received += value.length;
-        offline.progress.set(index, Math.min(received / total, 0.99));
+        offline.progress.set(key, Math.min(received / total, 0.99));
         renderOffline();
     }
 
@@ -766,43 +880,43 @@ async function downloadChapter(index) {
     const cache = await caches.open(AUDIO_CACHE);
 
     await cache.put(
-        audioKey(index),
+        audioKey(key),
         new Response(blob, { headers: { 'Content-Type': 'audio/mpeg', 'Content-Length': String(blob.size) } }),
     );
 
-    offline.progress.delete(index);
-    offline.saved.add(index);
+    offline.progress.delete(key);
+    offline.saved.add(key);
 
     // The service worker keeps a copy of the text for offline reading.
-    if (chapters[index].hasText) {
-        fetchText(index).catch(() => {});
+    if (chapterAt(key).hasText) {
+        fetchText(key).catch(() => {});
     }
 
     renderOffline();
 }
 
-function fetchAudio(index) {
-    return fetch(chapters[index].url, { signal: offline.controller.signal });
+function fetchAudio(key) {
+    return fetch(chapterAt(key).url, { signal: offline.controller.signal });
 }
 
-async function refreshUrl(index) {
-    const response = await fetch(`/audio/${index + 1}/url`, { headers: { Accept: 'application/json' } });
+async function refreshUrl(key) {
+    const response = await fetch(`/audio/${key}/url`, { headers: { Accept: 'application/json' } });
 
     if (response.ok) {
-        chapters[index].url = (await response.json()).url;
+        chapterAt(key).url = (await response.json()).url;
     }
 
     return response.ok;
 }
 
 function downloadAll() {
-    offline.all = true;
-    download(chapters.map((chapter, index) => index));
+    offline.all = state.sheetBook;
+    download(bookKeys(state.sheetBook));
 }
 
 function stopDownloads() {
     offline.queue = [];
-    offline.all = false;
+    offline.all = null;
     offline.controller?.abort();
     offline.progress.clear();
     renderOffline();
@@ -810,8 +924,14 @@ function stopDownloads() {
 
 async function removeDownloads() {
     stopDownloads();
-    offline.saved.clear();
-    await caches.delete(AUDIO_CACHE);
+
+    const cache = await caches.open(AUDIO_CACHE);
+
+    for (const key of bookKeys(state.sheetBook)) {
+        offline.saved.delete(key);
+        await cache.delete(audioKey(key));
+    }
+
     renderOffline();
 }
 
@@ -820,11 +940,12 @@ function renderOffline() {
         return;
     }
 
-    document.querySelectorAll('[data-offline]').forEach((el) => {
-        const index = Number(el.dataset.offline);
-        const progress = offline.progress.get(index);
+    document.querySelectorAll('[data-chapter]').forEach((row) => {
+        const el = row.querySelector('[data-offline]');
+        const key = chapterKey(row.dataset.book, Number(row.dataset.chapter));
+        const progress = offline.progress.get(key);
 
-        if (offline.saved.has(index)) {
+        if (offline.saved.has(key)) {
             el.innerHTML =
                 '<svg class="ml-auto size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
             el.setAttribute('aria-label', 'Saved for offline');
@@ -837,25 +958,53 @@ function renderOffline() {
         }
     });
 
-    const remaining = chapters.filter((chapter, index) => !offline.saved.has(index));
-    const current = offline.queue.find((index) => offline.progress.has(index));
+    // The panel is about the book showing in the chapter sheet.
+    const slug = state.sheetBook;
+    const keys = bookKeys(slug);
+    const saved = keys.filter((key) => offline.saved.has(key));
+    const remaining = keys.filter((key) => !offline.saved.has(key));
+    const current = offline.queue.find((key) => offline.progress.has(key));
 
     if (current !== undefined) {
-        offlineEls.status.textContent = `Saving chapter ${current + 1}… ${Math.round(offline.progress.get(current) * 100)}%`;
+        const [currentBook, number] = current.split('/');
+        const label = currentBook === slug ? `chapter ${number}` : `${booksBySlug[currentBook].title}, chapter ${number}`;
+
+        offlineEls.status.textContent = `Saving ${label}… ${Math.round(offline.progress.get(current) * 100)}%`;
     } else if (remaining.length === 0) {
         offlineEls.status.textContent = 'All chapters saved for offline';
-    } else if (offline.saved.size) {
-        offlineEls.status.textContent = `${offline.saved.size} of ${chapters.length} saved for offline`;
+    } else if (saved.length) {
+        offlineEls.status.textContent = `${saved.length} of ${keys.length} saved for offline`;
     } else {
         offlineEls.status.textContent = 'Listen without a connection';
     }
 
-    const megabytes = Math.round(remaining.reduce((sum, chapter) => sum + chapter.duration, 0) * BYTES_PER_SECOND / 1e6);
+    const megabytes = Math.round(remaining.reduce((sum, key) => sum + chapterAt(key).duration, 0) * BYTES_PER_SECOND / 1e6);
 
-    offlineEls.downloadAll.textContent = offline.saved.size ? `Save the rest (${megabytes} MB)` : `Save all (${megabytes} MB)`;
-    offlineEls.downloadAll.classList.toggle('hidden', remaining.length === 0 || offline.all);
-    offlineEls.remove.textContent = offline.all ? 'Stop' : 'Remove';
-    offlineEls.remove.classList.toggle('hidden', !offline.all && offline.saved.size === 0);
+    offlineEls.downloadAll.textContent = saved.length ? `Save the rest (${megabytes} MB)` : `Save all (${megabytes} MB)`;
+    offlineEls.downloadAll.classList.toggle('hidden', remaining.length === 0 || offline.all !== null);
+    offlineEls.remove.textContent = offline.all !== null ? 'Stop' : 'Remove';
+    offlineEls.remove.classList.toggle('hidden', offline.all === null && saved.length === 0);
+}
+
+// ---------------------------------------------------------------------------
+// Chapter sheet
+// ---------------------------------------------------------------------------
+
+/**
+ * Show a book's chapters in the sheet, without changing what's playing.
+ */
+function showBookInSheet(slug) {
+    state.sheetBook = slug;
+
+    document.querySelectorAll('[data-book-chapters]').forEach((list) => {
+        list.classList.toggle('hidden', list.dataset.bookChapters !== slug);
+    });
+
+    document.querySelectorAll('[data-show-book]').forEach((tab) => {
+        tab.setAttribute('aria-pressed', String(tab.dataset.showBook === slug));
+    });
+
+    renderOffline();
 }
 
 // ---------------------------------------------------------------------------
@@ -904,8 +1053,10 @@ for (const event of ['playing', 'canplay', 'seeked']) {
 audio.addEventListener('ended', () => {
     state.positions[state.chapter] = chapters[state.chapter].duration;
 
-    if (state.chapter < chapters.length - 1) {
-        selectChapter(state.chapter + 1, { autoplay: true, position: 0 });
+    const following = followingChapter();
+
+    if (following) {
+        selectChapter(following.index, { book: following.book, autoplay: true, position: 0 });
     } else {
         save(true);
         flash('The end');
@@ -916,16 +1067,16 @@ audio.addEventListener('ended', () => {
 const refreshedChapters = new Set();
 
 audio.addEventListener('error', async () => {
-    const index = state.chapter;
+    const key = currentKey();
     const wasPlaying = state.loading || !audio.paused;
 
-    if (!refreshedChapters.has(index)) {
-        refreshedChapters.add(index);
+    if (!refreshedChapters.has(key)) {
+        refreshedChapters.add(key);
 
         try {
-            if (await refreshUrl(index)) {
-                if (state.chapter === index) {
-                    selectChapter(index, { autoplay: wasPlaying, position: currentTime() });
+            if (await refreshUrl(key)) {
+                if (currentKey() === key) {
+                    selectChapter(state.chapter, { autoplay: wasPlaying, position: currentTime() });
                 }
 
                 return;
@@ -940,7 +1091,7 @@ audio.addEventListener('error', async () => {
     flash('Couldn’t load audio');
 });
 
-audio.addEventListener('loadeddata', () => refreshedChapters.delete(state.chapter));
+audio.addEventListener('loadeddata', () => refreshedChapters.delete(currentKey()));
 
 ui.seek.addEventListener('input', () => {
     state.scrubbing = true;
@@ -955,6 +1106,7 @@ ui.seek.addEventListener('change', () => {
 document.addEventListener('click', (event) => {
     const action = event.target.closest('[data-action]')?.dataset.action;
     const chapterRow = event.target.closest('[data-chapter]');
+    const bookTab = event.target.closest('[data-show-book]');
     const word = event.target.closest('[data-w]');
 
     if (word && reader.timings) {
@@ -969,13 +1121,20 @@ document.addEventListener('click', (event) => {
         return;
     }
 
+    if (bookTab) {
+        showBookInSheet(bookTab.dataset.showBook);
+
+        return;
+    }
+
     if (chapterRow) {
         const index = Number(chapterRow.dataset.chapter);
+        const slug = chapterRow.dataset.book;
 
-        if (index === state.chapter) {
+        if (slug === state.book && index === state.chapter) {
             play();
         } else {
-            selectChapter(index, { autoplay: true });
+            selectChapter(index, { book: slug, autoplay: true });
         }
 
         sheet.close();
@@ -1009,11 +1168,13 @@ document.addEventListener('click', (event) => {
             downloadAll();
             break;
         case 'remove-downloads':
-            offline.all ? stopDownloads() : removeDownloads();
+            offline.all !== null ? stopDownloads() : removeDownloads();
             break;
         case 'open-chapters':
+            showBookInSheet(state.book);
             renderChapterProgress();
             sheet.showModal();
+            $(`[data-show-book="${state.book}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
             break;
     }
 });
@@ -1065,6 +1226,7 @@ window.addEventListener('pagehide', () => save(true));
 // Boot
 // ---------------------------------------------------------------------------
 
+useBook(book.slug);
 load();
 registerMediaSessionHandlers();
 renderPlayState();

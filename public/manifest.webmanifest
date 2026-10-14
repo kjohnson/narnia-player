@@ -1,7 +1,7 @@
 {
     "name": "The Chronicles of Narnia",
     "short_name": "The Chronicles of Narnia",
-    "description": "Listen to The Lion, the Witch and the Wardrobe by C. S. Lewis, read by Dr. Chrissi Hart.",
+    "description": "Listen to The Chronicles of Narnia by C. S. Lewis, read by Dr. Chrissi Hart.",
     "start_url": "/",
     "scope": "/",
     "display": "standalone",
