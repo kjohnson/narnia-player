@@ -677,6 +677,8 @@ function registerMediaSessionHandlers() {
 const AUDIO_CACHE = 'audio-v1';
 // The MP3s are 64 kbps, so this is close enough to show download sizes.
 const BYTES_PER_SECOND = 8000;
+// Saved chapters record the duration they were cut to, so a re-cut chapter is saved again.
+const DURATION_HEADER = 'X-Chapter-Duration';
 
 // Chapters are tracked by their "{book}/{number}" key.
 const offline = {
@@ -730,13 +732,20 @@ async function initOffline() {
 
         const cache = await caches.open(AUDIO_CACHE);
 
+        const outdated = [];
+
         for (const request of await cache.keys()) {
             let key = new URL(request.url).pathname.replace(/^\/offline\/audio\//, '');
 
             // Chapters saved before there was more than one book belong to the first book.
             if (/^\d+$/.test(key)) {
                 key = chapterKey(books[0].slug, Number(key) - 1);
-                await cache.put(audioKey(key), await cache.match(request));
+                const saved = await cache.match(request);
+
+                if (chapterAt(key)) {
+                    await cache.put(audioKey(key), savedResponse(await saved.blob(), chapterAt(key)));
+                }
+
                 await cache.delete(request);
 
                 if (chapterAt(key)?.hasText) {
@@ -744,10 +753,27 @@ async function initOffline() {
                 }
             }
 
-            if (chapterAt(key)) {
+            const chapter = chapterAt(key);
+
+            if (!chapter) {
+                continue;
+            }
+
+            const saved = await cache.match(audioKey(key));
+
+            if (saved?.headers.get(DURATION_HEADER) === String(chapter.duration)) {
+                offline.saved.add(key);
+            } else if (navigator.onLine) {
+                // Re-cut since it was saved. The service worker would keep serving the old
+                // copy, so drop it and save the chapter again.
+                await cache.delete(audioKey(key));
+                outdated.push(key);
+            } else {
                 offline.saved.add(key);
             }
         }
+
+        download(outdated);
     } catch {
         offline.supported = false;
     }
@@ -879,10 +905,7 @@ async function downloadChapter(key) {
     const blob = new Blob(chunks, { type: 'audio/mpeg' });
     const cache = await caches.open(AUDIO_CACHE);
 
-    await cache.put(
-        audioKey(key),
-        new Response(blob, { headers: { 'Content-Type': 'audio/mpeg', 'Content-Length': String(blob.size) } }),
-    );
+    await cache.put(audioKey(key), savedResponse(blob, chapterAt(key)));
 
     offline.progress.delete(key);
     offline.saved.add(key);
@@ -893,6 +916,16 @@ async function downloadChapter(key) {
     }
 
     renderOffline();
+}
+
+function savedResponse(blob, chapter) {
+    return new Response(blob, {
+        headers: {
+            'Content-Type': 'audio/mpeg',
+            'Content-Length': String(blob.size),
+            [DURATION_HEADER]: String(chapter.duration),
+        },
+    });
 }
 
 function fetchAudio(key) {
