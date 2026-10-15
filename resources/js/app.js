@@ -4,6 +4,9 @@ const LEGACY_STORAGE_KEY = 'narnia-lww:player:v1';
 const BACK_SECONDS = 15;
 const FORWARD_SECONDS = 30;
 const FOLLOW_PAUSE_MS = 6000;
+// After a jump with the scrubber or a word, how long the way back is offered, and the smallest jump that offers it.
+const RETURN_VISIBLE_MS = 10000;
+const RETURN_MIN_JUMP_SECONDS = 5;
 // Follow-along text sizes in rem, smallest to largest.
 const TEXT_SIZES = [1, 1.125, 1.25, 1.5, 1.75, 2];
 const DEFAULT_TEXT_SIZE = 1;
@@ -35,6 +38,9 @@ const ui = {
     player: $('#player'),
     textButton: $('[data-action="text"]'),
     followButton: $('[data-action="follow"]'),
+    returnButton: $('.return-point'),
+    returnMarker: $('[data-bind="return-marker"]'),
+    returnTime: $('[data-bind="return-time"]'),
     coverView: $('[data-view="cover"]'),
     textView: $('[data-view="text"]'),
     icons: {
@@ -255,6 +261,7 @@ function renderTime() {
     }
 
     ui.seek.style.setProperty('--buffered', `${(buffered / total) * 100}%`);
+    renderReturnMarker();
 }
 
 function renderPlayState() {
@@ -552,6 +559,7 @@ function selectChapter(index, { autoplay = false, position, book: slug = state.b
     }
 
     save(true);
+    clearReturn();
 
     if (slug !== state.book) {
         useBook(slug);
@@ -614,6 +622,74 @@ function seekTo(seconds) {
     renderChapterProgress();
     highlightWord({ force: true });
     updatePositionState();
+}
+
+/**
+ * Where the listener was before jumping with the scrubber or a word. A run of
+ * jumps keeps the first spot, so the button always leads back to it.
+ */
+const returnPoint = {
+    key: null,
+    time: null,
+    timeout: null,
+};
+
+function jumpTo(seconds) {
+    const from = currentTime();
+
+    if (returnPoint.time === null && Math.abs(seconds - from) >= RETURN_MIN_JUMP_SECONDS) {
+        returnPoint.key = currentKey();
+        returnPoint.time = from;
+    }
+
+    seekTo(seconds);
+    resumeFollowing();
+
+    if (returnPoint.time !== null) {
+        showReturn();
+    }
+}
+
+function showReturn() {
+    ui.returnTime.textContent = formatTime(returnPoint.time);
+    ui.returnButton.setAttribute('aria-label', `Go back to ${formatTime(returnPoint.time)}`);
+    ui.returnButton.classList.remove('hidden');
+    ui.returnMarker.classList.remove('hidden');
+    renderReturnMarker();
+    clearTimeout(returnPoint.timeout);
+    returnPoint.timeout = setTimeout(clearReturn, RETURN_VISIBLE_MS);
+}
+
+function clearReturn() {
+    clearTimeout(returnPoint.timeout);
+    returnPoint.key = null;
+    returnPoint.time = null;
+    ui.returnButton.classList.add('hidden');
+    ui.returnMarker.classList.add('hidden');
+}
+
+function renderReturnMarker() {
+    if (returnPoint.time === null) {
+        return;
+    }
+
+    const at = Math.min(returnPoint.time / duration(), 1);
+    ui.returnMarker.style.setProperty('--at', String(at));
+
+    // Centre the button over the marker (the thumb is 16px wide), without running off either end.
+    const width = ui.seek.clientWidth;
+    const half = ui.returnButton.offsetWidth / 2;
+    const x = 8 + (width - 16) * at;
+    ui.returnButton.style.left = `${Math.min(Math.max(x, half), width - half)}px`;
+}
+
+function goBack() {
+    if (returnPoint.key === currentKey()) {
+        resumeFollowing();
+        seekTo(returnPoint.time);
+    }
+
+    clearReturn();
 }
 
 function skip(seconds) {
@@ -1159,7 +1235,7 @@ ui.seek.addEventListener('input', () => {
 
 ui.seek.addEventListener('change', () => {
     state.scrubbing = false;
-    seekTo(Number(ui.seek.value));
+    jumpTo(Number(ui.seek.value));
 });
 
 document.addEventListener('click', (event) => {
@@ -1174,8 +1250,7 @@ document.addEventListener('click', (event) => {
             return;
         }
 
-        resumeFollowing();
-        seekTo(reader.timings[Number(word.dataset.w) * 2]);
+        jumpTo(reader.timings[Number(word.dataset.w) * 2]);
 
         return;
     }
@@ -1222,6 +1297,9 @@ document.addEventListener('click', (event) => {
             break;
         case 'follow':
             resumeFollowing();
+            break;
+        case 'return':
+            goBack();
             break;
         case 'text-smaller':
             changeTextSize(-1);
@@ -1286,6 +1364,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 window.addEventListener('pagehide', () => save(true));
+window.addEventListener('resize', renderReturnMarker);
 
 // ---------------------------------------------------------------------------
 // Boot

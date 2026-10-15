@@ -114,6 +114,12 @@
                         class="scrubber"
                         aria-label="Seek"
                     >
+                    {{-- Marks where "back to" returns; the button above it is the accessible control. --}}
+                    <button type="button" data-action="return" data-bind="return-marker" class="return-marker hidden" tabindex="-1" aria-hidden="true"></button>
+                    <button type="button" data-action="return" class="tap return-point hidden">
+                        <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+                        <span data-bind="return-time"></span>
+                    </button>
                     <div class="mt-1 flex justify-between text-xs text-sand-400 tabular-nums">
                         <span data-bind="elapsed">0:00</span>
                         <span data-bind="status" class="text-ember-400" aria-live="polite"></span>
