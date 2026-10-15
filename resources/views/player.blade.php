@@ -84,6 +84,14 @@
 
             {{-- Follow-along text --}}
             <div class="relative -mx-6 hidden min-h-0 flex-1" data-view="text">
+                <div class="reader-size" role="group" aria-label="Text size">
+                    <button type="button" data-action="text-smaller" class="tap flex size-9 items-center justify-center rounded-full" aria-label="Smaller text">
+                        <span class="text-xs font-semibold" aria-hidden="true">A−</span>
+                    </button>
+                    <button type="button" data-action="text-larger" class="tap flex size-9 items-center justify-center rounded-full" aria-label="Larger text">
+                        <span class="text-base font-semibold" aria-hidden="true">A+</span>
+                    </button>
+                </div>
                 <div id="reader" class="reader" aria-label="Chapter text" tabindex="-1">
                     <p class="reader-status" data-bind="reader-status">Loading text…</p>
                 </div>

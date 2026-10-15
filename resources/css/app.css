@@ -151,8 +151,10 @@
     }
 
     .reader {
-        @apply relative h-full overflow-y-auto px-6 py-6 font-serif text-lg leading-relaxed text-sand-200/80 select-text;
-        mask-image: linear-gradient(to bottom, transparent, black 1.5rem, black calc(100% - 2.5rem), transparent);
+        --reader-size: 1.125rem;
+        @apply relative h-full overflow-y-auto px-6 pt-12 pb-6 font-serif leading-relaxed text-sand-200/80 select-text;
+        font-size: var(--reader-size);
+        mask-image: linear-gradient(to bottom, transparent 1rem, black 3rem, black calc(100% - 2.5rem), transparent);
         overscroll-behavior: contain;
     }
 
@@ -165,7 +167,8 @@
     }
 
     .reader h2 {
-        @apply mb-6 font-sans text-xl font-semibold text-sand-50;
+        @apply mb-6 font-sans font-semibold text-sand-50;
+        font-size: 1.1em;
     }
 
     .reader .reader-quote {
@@ -194,6 +197,11 @@
 
     .reader [data-w].is-current {
         @apply bg-ember-500/10 text-ember-400;
+    }
+
+    /* A− / A+ in the top corner of the text, where scrolled lines have faded out. */
+    .reader-size {
+        @apply absolute top-1 right-4 z-10 flex items-center rounded-full bg-night-800 text-sand-200 ring-1 ring-white/10;
     }
 
     .reader-follow {

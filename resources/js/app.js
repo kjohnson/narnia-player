@@ -4,6 +4,9 @@ const LEGACY_STORAGE_KEY = 'narnia-lww:player:v1';
 const BACK_SECONDS = 15;
 const FORWARD_SECONDS = 30;
 const FOLLOW_PAUSE_MS = 6000;
+// Follow-along text sizes in rem, smallest to largest.
+const TEXT_SIZES = [1, 1.125, 1.25, 1.5, 1.75, 2];
+const DEFAULT_TEXT_SIZE = 1;
 
 const { series, books } = JSON.parse(document.getElementById('audiobook-data').textContent);
 const booksBySlug = Object.fromEntries(books.map((listed) => [listed.slug, listed]));
@@ -51,6 +54,8 @@ const state = {
     // The book whose chapters are showing in the chapter sheet.
     sheetBook: book.slug,
     view: 'cover',
+    // Index into TEXT_SIZES.
+    textSize: DEFAULT_TEXT_SIZE,
     pendingSeek: null,
     scrubbing: false,
     loading: false,
@@ -68,6 +73,7 @@ function load() {
         if (saved) {
             state.progress = saved.progress ?? {};
             state.view = saved.view === 'text' ? 'text' : 'cover';
+            state.textSize = TEXT_SIZES[saved.textSize] ? saved.textSize : DEFAULT_TEXT_SIZE;
             useBook(booksBySlug[saved.book] ? saved.book : books[0].slug);
         }
     } catch {
@@ -126,7 +132,7 @@ function save(force = false) {
     try {
         localStorage.setItem(
             STORAGE_KEY,
-            JSON.stringify({ book: state.book, progress: state.progress, view: state.view }),
+            JSON.stringify({ book: state.book, progress: state.progress, view: state.view, textSize: state.textSize }),
         );
     } catch {
         // Ignore quota or privacy-mode errors.
@@ -305,6 +311,26 @@ function renderView() {
     }
 
     syncReaderLoop();
+}
+
+function renderTextSize() {
+    readerEl.style.setProperty('--reader-size', `${TEXT_SIZES[state.textSize]}rem`);
+    $('[data-action="text-smaller"]').disabled = state.textSize === 0;
+    $('[data-action="text-larger"]').disabled = state.textSize === TEXT_SIZES.length - 1;
+}
+
+function changeTextSize(step) {
+    const size = Math.min(Math.max(state.textSize + step, 0), TEXT_SIZES.length - 1);
+
+    if (size === state.textSize) {
+        return;
+    }
+
+    state.textSize = size;
+    renderTextSize();
+    // Keep the word being read in view as the lines reflow.
+    highlightWord({ force: true, scroll: 'instant' });
+    save(true);
 }
 
 function toggleView() {
@@ -1197,6 +1223,12 @@ document.addEventListener('click', (event) => {
         case 'follow':
             resumeFollowing();
             break;
+        case 'text-smaller':
+            changeTextSize(-1);
+            break;
+        case 'text-larger':
+            changeTextSize(1);
+            break;
         case 'download-all':
             downloadAll();
             break;
@@ -1261,6 +1293,7 @@ window.addEventListener('pagehide', () => save(true));
 
 useBook(book.slug);
 load();
+renderTextSize();
 registerMediaSessionHandlers();
 renderPlayState();
 selectChapter(state.chapter);
