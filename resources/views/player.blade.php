@@ -195,9 +195,20 @@
 
                 @foreach ($books as $listed)
                     @if ($listed['chapters']->isEmpty())
-                        <div class="px-3 py-8 text-center {{ $loop->first ? '' : 'hidden' }}" data-book-chapters="{{ $listed['slug'] }}">
-                            <p class="font-medium">{{ $listed['title'] }} is coming soon.</p>
-                            <p class="mt-1 text-sm text-sand-400">Its chapters are being prepared.</p>
+                        <div class="{{ $loop->first ? '' : 'hidden' }}" data-book-chapters="{{ $listed['slug'] }}">
+                            <p class="px-3 pb-2 text-sm font-medium text-ember-400">{{ $listed['title'] }} is coming soon.</p>
+                            <ol class="space-y-1" aria-label="{{ $listed['title'] }} chapters, coming soon">
+                                @foreach ($listed['upcomingChapters'] as $title)
+                                    <li class="flex items-center gap-4 rounded-xl px-3 py-3 opacity-50">
+                                        <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/5 text-sm font-semibold tabular-nums text-sand-300">
+                                            {{ $loop->iteration }}
+                                        </span>
+                                        <span class="min-w-0 flex-1 truncate font-medium">{{ $title }}</span>
+                                        <span class="shrink-0 text-sm text-sand-400">Soon</span>
+                                        <span class="w-8 shrink-0" aria-hidden="true"></span>
+                                    </li>
+                                @endforeach
+                            </ol>
                         </div>
                         @continue
                     @endif

@@ -17,6 +17,7 @@ class PlayerController extends Controller
                 'title' => $book['title'],
                 'cover' => asset($book['cover']),
                 'coverDescription' => $book['cover_description'],
+                'upcomingChapters' => $book['upcoming_chapters'] ?? [],
                 'chapters' => collect($book['chapters'])
                     ->values()
                     ->map(fn (array $chapter, int $index) => [

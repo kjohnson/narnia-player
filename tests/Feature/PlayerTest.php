@@ -38,6 +38,7 @@ class PlayerTest extends TestCase
             'cover' => 'images/the-silver-chair.jpg',
             'cover_description' => 'A silver chair glowing in a dark cavern',
             'ebook' => 'lewis-silver-chair.epub',
+            'upcoming_chapters' => ['Behind the Gym', 'Jill Is Given a Task'],
             'chapters' => [],
         ]]);
 
@@ -45,6 +46,7 @@ class PlayerTest extends TestCase
             ->assertOk()
             ->assertSee('images/the-silver-chair.jpg')
             ->assertSee('The Silver Chair is coming soon.')
+            ->assertSeeInOrder(['Behind the Gym', 'Jill Is Given a Task'])
             ->assertDontSee('data-book="the-silver-chair"', false);
     }
 
