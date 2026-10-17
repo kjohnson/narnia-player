@@ -45,7 +45,7 @@ class PlayerTest extends TestCase
         $this->get('/')
             ->assertOk()
             ->assertSee('images/the-silver-chair.jpg')
-            ->assertSee('The Silver Chair is coming soon.')
+            ->assertSee('The Silver Chair chapters, coming soon')
             ->assertSeeInOrder(['Behind the Gym', 'Jill Is Given a Task'])
             ->assertDontSee('data-book="the-silver-chair"', false);
     }
