@@ -152,6 +152,16 @@ class SyncAudiobookTextTest extends TestCase
         $this->assertSame([['tag' => 'p', 'words' => ['Back', 'again.']]], $this->synced(1, 'sequel')['blocks']);
     }
 
+    public function test_books_without_chapters_yet_are_skipped(): void
+    {
+        config(['audiobook.books.coming-soon' => ['title' => 'Coming Soon', 'ebook' => 'not-here-yet.epub', 'chapters' => []]]);
+        $this->putTranscript('chapter-01-europan-extraction', $this->spoken('chapter one'));
+
+        $this->artisan('audiobook:sync')->assertSuccessful();
+
+        Storage::disk('local')->assertExists('test-book/text/chapter-01.json');
+    }
+
     public function test_a_single_book_can_be_synced(): void
     {
         $this->putTranscript('chapter-01-europan-extraction', $this->spoken('chapter one'));

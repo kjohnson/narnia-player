@@ -61,6 +61,12 @@ class SyncAudiobookText extends Command
                 continue;
             }
 
+            if ($details['chapters'] === []) {
+                $this->components->warn("{$details['title']} has no chapters yet, skipping.");
+
+                continue;
+            }
+
             if (! $this->syncBook($book, $details, $this->argument('chapter'))) {
                 return self::FAILURE;
             }

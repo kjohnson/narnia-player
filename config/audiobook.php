@@ -48,7 +48,8 @@ return [
     | In reading order. The key names the book's folder and appears in its
     | URLs. Chapters were cut from the Readings from Under the Grapevine
     | episodes in the podcast feed at http://feeds.ancientfaith.com/grapevine,
-    | without the podcast's intros and sign-offs.
+    | without the podcast's intros and sign-offs. A book with no chapters yet
+    | is shown as coming soon.
     |
     | Running "php artisan audiobook:sync" matches each chapter's text in the
     | ebook against a WhisperX transcript of its audio (in "transcripts") and
@@ -270,6 +271,41 @@ return [
                     'duration' => 1840.32,
                 ],
             ],
+        ],
+        'the-voyage-of-the-dawn-treader' => [
+            'title' => 'The Voyage of the Dawn Treader',
+            'cover' => 'images/the-voyage-of-the-dawn-treader.jpg',
+            'cover_description' => 'A dragon-prowed ship under sail on a moonlit sea',
+            'ebook' => 'lewis-voyage-of-the-dawn-treader.epub',
+            'chapters' => [],
+        ],
+        'the-silver-chair' => [
+            'title' => 'The Silver Chair',
+            'cover' => 'images/the-silver-chair.jpg',
+            'cover_description' => 'A silver chair glowing in a dark cavern',
+            'ebook' => 'lewis-silver-chair.epub',
+            'chapters' => [],
+        ],
+        'the-horse-and-his-boy' => [
+            'title' => 'The Horse and His Boy',
+            'cover' => 'images/the-horse-and-his-boy.jpg',
+            'cover_description' => 'A horse and rider crossing the desert towards a domed city under a crescent moon',
+            'ebook' => 'lewis-horse-and-his-boy.epub',
+            'chapters' => [],
+        ],
+        'the-magicians-nephew' => [
+            'title' => 'The Magician’s Nephew',
+            'cover' => 'images/the-magicians-nephew.jpg',
+            'cover_description' => 'A tree of glowing apples on a hill under the stars',
+            'ebook' => 'lewis-magician-s-nephew.epub',
+            'chapters' => [],
+        ],
+        'the-last-battle' => [
+            'title' => 'The Last Battle',
+            'cover' => 'images/the-last-battle.jpg',
+            'cover_description' => 'A stable on a hill at night, with light pouring through its door',
+            'ebook' => 'lewis-last-battle.epub',
+            'chapters' => [],
         ],
     ],
 

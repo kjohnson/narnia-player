@@ -27,7 +27,25 @@ class PlayerTest extends TestCase
             ->assertSeeInOrder(['The Lion, the Witch and the Wardrobe', 'Prince Caspian'])
             ->assertSee('The Island')
             ->assertSee('Aslan Makes a Door in the Air')
-            ->assertViewHas('books', fn ($books) => $books->pluck('slug')->all() === ['the-lion-the-witch-and-the-wardrobe', 'prince-caspian']);
+            ->assertViewHas('books', fn ($books) => $books->pluck('slug')->all() === array_keys(config('audiobook.books'))
+                && $books->pluck('slug')->take(2)->all() === ['the-lion-the-witch-and-the-wardrobe', 'prince-caspian']);
+    }
+
+    public function test_books_without_chapters_are_listed_as_coming_soon(): void
+    {
+        config(['audiobook.books.the-silver-chair' => [
+            'title' => 'The Silver Chair',
+            'cover' => 'images/the-silver-chair.jpg',
+            'cover_description' => 'A silver chair glowing in a dark cavern',
+            'ebook' => 'lewis-silver-chair.epub',
+            'chapters' => [],
+        ]]);
+
+        $this->get('/')
+            ->assertOk()
+            ->assertSee('images/the-silver-chair.jpg')
+            ->assertSee('The Silver Chair is coming soon.')
+            ->assertDontSee('data-book="the-silver-chair"', false);
     }
 
     public function test_player_links_to_signed_audio_urls_instead_of_files(): void
@@ -36,7 +54,7 @@ class PlayerTest extends TestCase
             ->assertOk()
             ->assertDontSee('.mp3')
             ->assertViewHas('books', function ($books) {
-                $url = $books->last()['chapters']->first()['url'];
+                $url = $books->firstWhere('slug', 'prince-caspian')['chapters']->first()['url'];
 
                 return str_starts_with($url, url('/audio/prince-caspian/1?expires='))
                     && str_contains($url, 'signature=');
@@ -48,6 +66,10 @@ class PlayerTest extends TestCase
         $disk = Storage::disk(config('audiobook.disk'));
 
         foreach (config('audiobook.books') as $book => $details) {
+            if ($details['chapters'] === []) {
+                continue;
+            }
+
             if ($disk->files("{$book}/audio") === []) {
                 $this->markTestSkipped("The audio is not in the repo; add it to storage/app/private/{$book}/audio to check it.");
             }
@@ -60,7 +82,7 @@ class PlayerTest extends TestCase
 
     public function test_audio_files_are_not_publicly_accessible(): void
     {
-        foreach (config('audiobook.books') as $book => $details) {
+        foreach (array_filter(config('audiobook.books'), fn (array $details) => $details['chapters'] !== []) as $book => $details) {
             $this->assertFileDoesNotExist(public_path("audio/{$details['chapters'][0]['file']}"));
             $this->assertFileDoesNotExist(public_path("{$book}/audio/{$details['chapters'][0]['file']}"));
         }

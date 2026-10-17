@@ -80,7 +80,7 @@ function load() {
             state.progress = saved.progress ?? {};
             state.view = saved.view === 'text' ? 'text' : 'cover';
             state.textSize = TEXT_SIZES[saved.textSize] ? saved.textSize : DEFAULT_TEXT_SIZE;
-            useBook(booksBySlug[saved.book] ? saved.book : books[0].slug);
+            useBook(booksBySlug[saved.book]?.chapters.length ? saved.book : books[0].slug);
         }
     } catch {
         // Storage unavailable or corrupt; start fresh.
@@ -192,7 +192,8 @@ function followingChapter() {
         return { book: state.book, index: state.chapter + 1 };
     }
 
-    const nextBook = books[books.indexOf(book) + 1];
+    // Books that are still coming soon have no chapters yet.
+    const nextBook = books.slice(books.indexOf(book) + 1).find((listed) => listed.chapters.length);
 
     return nextBook ? { book: nextBook.slug, index: 0 } : null;
 }
@@ -1093,9 +1094,11 @@ function renderOffline() {
         }
     });
 
-    // The panel is about the book showing in the chapter sheet.
+    // The panel is about the book showing in the chapter sheet, and isn't needed for one that's coming soon.
     const slug = state.sheetBook;
     const keys = bookKeys(slug);
+
+    offlineEls.panel.classList.toggle('hidden', keys.length === 0);
     const saved = keys.filter((key) => offline.saved.has(key));
     const remaining = keys.filter((key) => !offline.saved.has(key));
     const current = offline.queue.find((key) => offline.progress.has(key));

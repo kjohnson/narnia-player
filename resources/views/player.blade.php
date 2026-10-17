@@ -183,14 +183,24 @@
                                 aria-pressed="{{ $loop->first ? 'true' : 'false' }}"
                                 class="tap book-tab flex w-24 shrink-0 snap-start flex-col items-center gap-2 rounded-xl p-2 text-center"
                             >
-                                <img src="{{ $listed['cover'] }}" alt="" width="1024" height="1024" loading="lazy" class="aspect-square w-full rounded-lg object-cover ring-1 ring-white/10">
+                                <img src="{{ $listed['cover'] }}" alt="" width="1024" height="1024" loading="lazy" class="aspect-square w-full rounded-lg object-cover ring-1 ring-white/10 {{ $listed['chapters']->isEmpty() ? 'opacity-40' : '' }}">
                                 <span class="line-clamp-2 text-xs leading-snug font-medium">{{ $listed['title'] }}</span>
+                                @if ($listed['chapters']->isEmpty())
+                                    <span class="-mt-1 text-[0.7rem] font-semibold whitespace-nowrap text-ember-400">Coming soon</span>
+                                @endif
                             </button>
                         @endforeach
                     </div>
                 @endif
 
                 @foreach ($books as $listed)
+                    @if ($listed['chapters']->isEmpty())
+                        <div class="px-3 py-8 text-center {{ $loop->first ? '' : 'hidden' }}" data-book-chapters="{{ $listed['slug'] }}">
+                            <p class="font-medium">{{ $listed['title'] }} is coming soon.</p>
+                            <p class="mt-1 text-sm text-sand-400">Its chapters are being prepared.</p>
+                        </div>
+                        @continue
+                    @endif
                     <ol class="space-y-1 {{ $loop->first ? '' : 'hidden' }}" data-book-chapters="{{ $listed['slug'] }}" aria-label="{{ $listed['title'] }}">
                         @foreach ($listed['chapters'] as $index => $chapter)
                             <li>
