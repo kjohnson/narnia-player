@@ -7,6 +7,7 @@ Dr. Chrissi Hart on [Readings from Under the Grapevine](https://www.ancientfaith
 1. *The Lion, the Witch and the Wardrobe*
 2. *Prince Caspian*
 3. *The Voyage of the Dawn Treader*
+4. *The Silver Chair*
 
 - Books and chapter list with per-chapter progress; finishing a book carries on into the next
 - Resume where you left off (saved in the browser's localStorage)
