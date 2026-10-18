@@ -10,6 +10,7 @@ Dr. Chrissi Hart on [Readings from Under the Grapevine](https://www.ancientfaith
 4. *The Silver Chair*
 5. *The Horse and His Boy*
 6. *The Magician’s Nephew*
+7. *The Last Battle*
 
 - Books and chapter list with per-chapter progress; finishing a book carries on into the next
 - Resume where you left off (saved in the browser's localStorage)
