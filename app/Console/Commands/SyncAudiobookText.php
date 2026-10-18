@@ -28,11 +28,14 @@ class SyncAudiobookText extends Command
     /**
      * How many transcript and book words to look ahead when they drift apart.
      *
+     * The wide search also catches a recording that was edited down, skipping
+     * whole pages, so it needs a long run of agreeing words to trust a match.
+     *
      * @var array<int, array{window: int, confirm: int}>
      */
     private const SEARCHES = [
         ['window' => 40, 'confirm' => 2],
-        ['window' => 400, 'confirm' => 4],
+        ['window' => 1200, 'confirm' => 6],
     ];
 
     private Filesystem $disk;

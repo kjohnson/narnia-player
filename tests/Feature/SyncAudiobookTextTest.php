@@ -96,6 +96,26 @@ class SyncAudiobookTextTest extends TestCase
         $this->assertLessThanOrEqual(12.0, $timings[23]);
     }
 
+    public function test_a_long_passage_missing_from_the_narration_stays_in_sync(): void
+    {
+        $words = array_map(fn (int $number): string => "word{$number}", range(1, 700));
+        Storage::disk('local')->put('sequel/sequel.epub', $this->makeEpub([
+            'one.xhtml' => $this->xhtml('Chapter 1: Return', '<p>'.implode(' ', $words).'</p>'),
+        ]));
+        // The recording jumps from "word50" straight to "word551".
+        $spoken = [...array_slice($words, 0, 50), ...array_slice($words, 550)];
+        $this->putTranscript('chapter-01-return', $this->spoken('chapter one return '.implode(' ', $spoken)), 'sequel');
+
+        $this->artisan('audiobook:sync', ['book' => 'sequel'])->assertSuccessful();
+
+        $timings = $this->synced(1, 'sequel')['timings'];
+
+        // "word551" (book word 550) is spoken as word 53, after "chapter one return" and 50 words.
+        $this->assertEquals([53, 53.5], array_slice($timings, 550 * 2, 2));
+        // "word700" (the last book word) is spoken as the last word, 202.
+        $this->assertEquals([202, 202.5], array_slice($timings, 699 * 2, 2));
+    }
+
     public function test_timings_never_go_backwards(): void
     {
         $this->putTranscript('chapter-01-europan-extraction', $this->spoken('something else entirely he said'));
