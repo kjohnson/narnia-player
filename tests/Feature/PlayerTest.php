@@ -50,6 +50,27 @@ class PlayerTest extends TestCase
             ->assertDontSee('data-book="the-silver-chair"', false);
     }
 
+    public function test_each_chapter_has_an_options_menu_for_its_progress(): void
+    {
+        config(['audiobook.books.the-silver-chair' => [
+            'title' => 'The Silver Chair',
+            'cover' => 'images/the-silver-chair.jpg',
+            'cover_description' => 'A silver chair glowing in a dark cavern',
+            'ebook' => 'lewis-silver-chair.epub',
+            'upcoming_chapters' => ['Behind the Gym'],
+            'chapters' => [],
+        ]]);
+
+        $response = $this->get('/')->assertOk();
+        $chapterCount = collect(config('audiobook.books'))->sum(fn (array $book): int => count($book['chapters']));
+
+        $this->assertSame($chapterCount, substr_count($response->getContent(), 'data-chapter-options='));
+        $this->assertSame($chapterCount, substr_count($response->getContent(), 'data-action="reset-progress"'));
+        $response->assertSeeInOrder(['aria-label="Options for Lucy Looks into a Wardrobe"', 'id="actions-the-lion-the-witch-and-the-wardrobe-0"', 'Reset progress'], false)
+            ->assertSee('aria-controls="actions-prince-caspian-0"', false)
+            ->assertDontSee('data-options-book="the-silver-chair"', false);
+    }
+
     public function test_player_links_to_signed_audio_urls_instead_of_files(): void
     {
         $this->get('/')
