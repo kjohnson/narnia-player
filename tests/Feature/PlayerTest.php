@@ -71,6 +71,15 @@ class PlayerTest extends TestCase
             ->assertDontSee('data-options-book="the-silver-chair"', false);
     }
 
+    public function test_cover_urls_change_when_the_cover_does(): void
+    {
+        $hash = substr(hash_file('xxh3', public_path('images/prince-caspian.jpg')), 0, 8);
+
+        $this->get('/')
+            ->assertOk()
+            ->assertViewHas('books', fn ($books) => $books->firstWhere('slug', 'prince-caspian')['cover'] === asset('images/prince-caspian.jpg').'?v='.$hash);
+    }
+
     public function test_player_links_to_signed_audio_urls_instead_of_files(): void
     {
         $this->get('/')
